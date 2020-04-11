@@ -1,5 +1,5 @@
 
-
+import math as math
 import autograd as Agrad
 import autograd.numpy as np 
 import scipy.optimize
@@ -26,17 +26,13 @@ mpl.rcParams['legend.frameon'] = False
 
 ########################################################################
 '''
-rp_2d.py
-Code modified from rp_2d.py
-Author: Massimo Pascale
-Last Updated: 11/12/2019
+testgrad.py
 
-Code uses poisson prior and exponential intensity function to determine
-point source locations in psf+noise and recover hyperparameters.
+
+Code created to compare analytical gradients to numerical
+mostly to check analytical are correct
 '''
 ########################################################################
-
-
 
 
 #create global definitions - this will become a main function later on
@@ -72,6 +68,23 @@ def gaussian(x, loc=None, scale=None):
     y = (x - loc)/scale
     return np.exp(-0.5*y**2)/np.sqrt(2.*np.pi)/scale
 
+def symmetrize(a):
+    """
+    Return a symmetrized version of NumPy array a.
+
+    Values 0 are replaced by the array value at the symmetric
+    position (with respect to the diagonal), i.e. if a_ij = 0,
+    then the returned array a' is such that a'_ij = a_ji.
+
+    Diagonal values are left untouched.
+
+    a -- square NumPy array, such that a_ij = 0 or a_ji = 0, 
+    for i != j.
+    taken from a stack exchange post:
+    https://stackoverflow.com/questions/2572916/numpy-smart-symmetric-matrix
+    """
+    return a + a.T - np.diag(a.diagonal());
+
     
 def Psi(ws): 
     ''' "forward operator" i.e. forward model 
@@ -82,34 +95,39 @@ def Psi(ws):
     '''
     return np.sum(np.array([w*psi(index) for (index,w) in np.ndenumerate(ws)]),0)
 
+
 def prior_i(w,fdensity,alpha,sig):
     '''
     log of Poisson prior for an indivudial pixel
     '''
     pri=0.;
-    if 0. < w <= 4:
+    #if 0. < w <= 4:
         #norm = (max(interval_grid)**(alpha+1) - min(interval_grid)**(alpha+1))/(alpha+1); #normalization of mass function
-        p1 = w**alpha /w_norm; #probability of single source
+    p1 = w**alpha /w_norm; #probability of single source
         #w_fft = np.linspace(0,w,50);
         #now probability of second source
         #p2 = np.abs(Agrad.numpy.fft.ifft(Agrad.numpy.fft.fft(w_fft**alpha /w_norm)**2));
         #p2 = p2[-1];
-        pri += fdensity*p1 #+ p2*fdensity**2
-    if w > 0:
+    pri += fdensity*p1 #+ p2*fdensity**2
+    #if w > 0:
         #pri += (1.-fdensity - fdensity**2 ) *gaussian(np.log(w),loc=-4., scale=sig)/w
-        pri += (1.-fdensity) *gaussian(np.log(w),loc=-4., scale=sig)/w
+    pri += (1.-fdensity) *gaussian(np.log(w),loc=-4., scale=sig)/w
     return pri
     
-def lnprior(ws,fdensity,alpha,sig): 
-	'''
-	calculate log of prior
-	'''
-	return np.sum([np.log(prior_i(w,fdensity,alpha,sig)) for w in ws.flatten()])
+def lnprior(ws,fdensity,alpha,sig):
+    '''
+    calculate log of prior
+    '''
+    ws = ws.reshape((n_grid,n_grid));
+    pri = np.sum([np.log(prior_i(w,fdensity,alpha,sig)) for w in ws.flatten()]);
+    return pri.flatten();
 
 def lnlike(ws): 
     ''' log likelihood 
     '''
-    return -0.5 * np.sum((Psi(ws) - data)**2/sig_noise**2)
+    ws = ws.reshape((n_grid,n_grid));
+    like = -0.5 * np.sum((Psi(ws) - data)**2/sig_noise**2);
+    return like.flatten();
  
 def lnpost(ws,fdensity,alpha,sig): 
     #converting flattened ws to matrix
@@ -122,25 +140,64 @@ def grad_lnpost(ws,fdensity,alpha,sig):
     mo = np.exp(-4.);
     ws = ws.reshape((n_grid,n_grid));
     #calc l1
-    bsis = (Psi(ws)-data)/sig_noise**2;
-    lsis = ws*0;
-    for (index,w) in np.ndenumerate(ws):
-        lsis[index] = np.sum(psi(index)*bsis);
+    bsis = -(Psi(ws)-data)/sig_noise**2;
+    lsis = np.array([np.sum(bsis*psi(index)) for (index,w) in np.ndenumerate(ws)]);
+    lsis = lsis.reshape((n_grid,n_grid));
     l1 = lsis#*np.sum((Psi(ws)-data)/2/sig_noise**2);
     xsi = (1.-fdensity ) * gaussian(np.log(ws),loc=np.log(mo), scale=sig)/ws + fdensity*(ws**alpha /w_norm)
     l2 = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3 + fdensity*alpha*ws**(alpha-1) /w_norm;
     l2 = l2/np.absolute(xsi);
-    l_tot = l1-l2;
-    #aval = afunc(ws);
-    #print('new it')
-    #print(np.absolute(aval-l_tot));
-    return l_tot.flatten();
+    #l2 = fdensity*alpha*ws**(alpha-1) /w_norm /(fdensity*(ws**alpha /w_norm))
+    l_tot = l1+l2;
+    return -1*l_tot.flatten();
     
+def sgrad_lnpost(w_all,index,fdensity,alpha,sig):
+    #calculate gradient of the ln posterior
+    mo = np.exp(-4.);
+    ws = w_all[index];
+    #calc l1
+    bsis = -(Psi(w_all)-data)/sig_noise**2;
+    lsis = np.sum(bsis*psi(index));
+    l1 = lsis#*np.sum((Psi(ws)-data)/2/sig_noise**2);
+    xsi = (1.-fdensity ) * gaussian(np.log(ws),loc=np.log(mo), scale=sig)/ws + fdensity*(ws**alpha /w_norm)
+    l2 = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3 + fdensity*alpha*ws**(alpha-1) /w_norm;
+    l2 = l2/np.absolute(xsi);
+    #l2 = fdensity*alpha*ws**(alpha-1) /w_norm /(fdensity*(ws**alpha /w_norm))
+    l_tot = l1+l2;
+    return -1*l_tot;
+    
+def hess_lnpost(ws,fdensity,alpha,sig):
+    mo = np.exp(-4.);
+    ws = ws.reshape((n_grid,n_grid));
+    #calc l1
+    lsis = np.array([-1*np.sum(psi(index)**2)/sig_noise**2 for (index,w) in np.ndenumerate(ws)]);
+    lsis = lsis.reshape((n_grid,n_grid));
+    l1 = lsis#*np.sum((Psi(ws)-data)/2/sig_noise**2);
+    xsi = (1.-fdensity ) * gaussian(np.log(ws),loc=np.log(mo), scale=sig)/ws + fdensity*(ws**alpha /w_norm)
+    dxsi = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3 + fdensity*alpha*ws**(alpha-1) /w_norm;
+    dxsi_st = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3;
+    ddxsi_st = -1*dxsi_st/ws - dxsi_st*np.log(ws/mo)/ws /sig**2 -(1.-fdensity)*(1/np.sqrt(2*np.pi)/sig)*np.exp(-np.log(ws/mo)**2 /2/sig**2)*(1/sig**2 - np.log(ws/mo)/sig**2 -1)/ ws**3;
+    ddxsi = ddxsi_st + fdensity*alpha*(alpha-1)*ws**(alpha-2) /w_norm   ;
+    l2 = -1*(dxsi/xsi)**2 + ddxsi/np.absolute(xsi);
+    l_tot = l1+l2;
+    print(l_tot);
+    #those are the diagonal terms, now need to build off diagonal
+    
+    hess_m = np.zeros((n_grid**2,n_grid**2));
+    np.fill_diagonal(hess_m,l2);
+    '''
+    for i in range(0,n_grid**2):
+        for j in range(i+1,n_grid**2):
+            ind1 = (int(i/n_grid),i%n_grid);
+            ind2 = (int(j/n_grid),j%n_grid);
+            hess_m[i,j] = -1*np.sum(psi(ind1)*psi(ind2))/sig_noise**2
+    hess_m = symmetrize(hess_m);
+    '''
+    return -1*hess_m;
+
 def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     #keeping in mind that minimize requires flattened arrays
-    #afunc = Agrad.grad(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
-    grad_fun = lambda tg: grad_lnpost(tg,f_ini,alpha_ini,sig_curr);
-    #grad_fun = Agrad.grad(lambda tg: -1*lnpost(tg,f_ini,alpha_ini,sig_curr));
+    grad_fun = lambda tg: -1*grad_lnpost(tg,f_ini,alpha_ini,sig_curr);
     res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=grad_fun, 
@@ -150,7 +207,7 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     tt_prime = res['x'];
     print(res['nit'])
     w_final = tt_prime.reshape((n_grid,n_grid));
-    #print(w_final);
+    print(w_final);
     #pick out the peaks using photutils
     thresh = detect_threshold(w_final,3);
     tbl = find_peaks(w_final,thresh);
@@ -193,82 +250,46 @@ data = Psi(w_true_grid) + sig_noise * np.random.randn(n_grid,n_grid);
 
 
 #now we begin the optimization
-tt0 = np.zeros(n_grid**2) +1; #begin with high uniform M
-
+#tt0 = np.zeros(n_grid**2) +3; #begin with high uniform M
+tt0 = np.absolute(np.random.randn(n_grid**2)) + 2;
+#tt0[1] = 0.5
+#tt0[5] = 0.2
+#tt0[7] = 0.1
 #begin with the simple method of just minimizing
 f_curr = fdensity_true;
 a_curr = 2;
 sig_delta = 0.75;
-
-tt_prime = optimize_m(tt0,f_curr,a_curr,sig_delta);
-
-#a_prime, f_prime = optimize_fa(tt_prime,f_curr,a_curr,sig_delta);
-
-fig, ax = plt.subplots(1,3)
-ax[0].imshow(w_true_grid);
-ax[0].set_title('True Positions')
-ax[1].imshow(data);
-ax[1].set_title('Observed Data')
-ax[2].imshow(tt_prime);
-ax[2].set_title('Sparse Bayes')
-plt.show();
-
 '''
-f_curr = 0.3;
-alpha_curr = 0.2;
-sig_delta = 0.75;
-step = 0;
-#now we begin optimizing step by step, beginning with M, then f, then alpha
-while(True):
-	#start with m
-	res = scipy.optimize.minimize(
-			Agrad.value_and_grad(lambda tt: -1.*lnpost(tt,f_curr,alpha_curr,sig_delta,w_grid)),  
-			tt0, # theta initial 
-			jac=True, 
-			method='L-BFGS-B', 
-			bounds=[(1e-5, 5)]*len(tt0))
-	tt_prime = res['x']
-	print('midstep');
-	#step f by clipping the data
-	m_inds = scipy.signal.find_peaks(tt_prime);
-	f_prime = len(m_inds)/n_grid;
-	tt_prime = tt_prime[m_inds];
-	#step f and alpha simultaneously
-	res = scipy.optimize.minimize(
-			Agrad.value_and_grad(lambda x: -1.*lnpost(tt_prime,x,sig_delta,w_grid)),  
-			(alpha_curr), # fdensity and alpha initial 
-			jac=True, 
-			method='L-BFGS-B', 
-			bounds=[(-10, 10)])
-	f_prime,alpha_prime = res['x']
-	#calculate difference for error threshold
-	diff_f = abs(f_prime-f_curr);
-	diff_alpha = abs(alpha_prime - alpha_curr);
-	diff_t = abs(tt_prime - tt0);
-	diff_w = np.sqrt(diff_t.dot(diff_t));
-	if diff_w+diff_f+diff_alpha < 1e-4:
-		break;
-	#if not passed, then update values and step
-	tt0 = tt_prime;
-	alpha_curr = alpha_prime;
-	f_curr = f_prime;
-	step+=1;
-	print(step);
+#afunc = Agrad.grad(lambda tt: -1*lnpost(tt,f_curr,a_curr,sig_delta));
+af_like = Agrad.grad(lambda tt: -1*lnlike(tt));
+af_pri = Agrad.grad(lambda tt: -1*lnprior(tt,f_curr,a_curr,sig_delta));
+aval_like = af_like(tt0);
+aval_pri = af_pri(tt0);
+aval = aval_like+aval_pri
+tt0 = tt0.reshape((n_grid,n_grid));
+gval = np.array([sgrad_lnpost(tt0,index,f_curr,a_curr,sig_delta) for (index,w) in np.ndenumerate(tt0)]);
+#lsis = lsis.reshape((n_grid,n_grid));
+print(np.absolute(aval-gval));
 
-print(alpha_prime);
-print(f_prime);
+#now test hessian
 '''
 '''
-# plot data 
-fig = plt.figure(figsize=(10,5))
-sub = fig.add_subplot(111)
-sub.scatter(xpix, data, marker='x', s=10) 
-for x, w in zip(x_true, w_true): 
-    sub.vlines(x, 0, w, color='k')
-sub.plot(theta_grid, tt_prime, c='C1', ls='--')
-sub.set_xlabel(r'$x_{\rm pix}$', fontsize=25) 
-sub.set_xlim(0., 1.) 
-sub.set_ylabel('intensity', fontsize=25) 
-sub.set_ylim(0., 2.5) 
-plt.show();
+hval = hess_lnpost(tt0,f_curr,a_curr,sig_delta);
+afunc = Agrad.grad(lambda tt: sgrad_lnpost(tt,f_curr,a_curr,sig_delta));
+tt0 = tt0.reshape((n_grid,n_grid));
+aval = np.array([afunc(tt0,index) for (index,w) in np.ndenumerate(tt0)]);
+print(np.absolute(aval-hval));
 '''
+
+hval = hess_lnpost(tt0,f_curr,a_curr,sig_delta);
+
+#af_like = Agrad.hessian(lambda tt: -1*lnlike(tt));
+af_pri = Agrad.hessian(lambda tt: -1*lnprior(tt,f_curr,a_curr,sig_delta));
+#aval_like = af_like(tt0);
+aval_pri = af_pri(tt0);
+#aval = aval_like+aval_pri;
+#print(np.diagonal(aval,axis1=1,axis2=2)-np.diagonal(hval))
+print(np.average(aval_pri[0][:][:]-hval));
+#print(hval_like - np.diagonal(aval_like));
+#print(hval_pri - np.diagonal(aval_pri))
+#print(np.absolute(aval-hval));

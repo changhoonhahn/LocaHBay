@@ -12,7 +12,7 @@ import autograd.numpy as np
 import scipy.optimize
 from scipy.stats import norm as Norm
 # --- locahbay
-from locahbay import util as UT 
+#from locahbay import util as UT 
 # -- plotting -- 
 import matplotlib as mpl 
 import matplotlib.pyplot as plt

@@ -1,7 +1,8 @@
 
-
+import math as math
 import autograd as Agrad
 import autograd.numpy as np 
+#import numpy as np
 import scipy.optimize
 import scipy.stats as st
 from scipy.integrate import trapz
@@ -26,10 +27,10 @@ mpl.rcParams['legend.frameon'] = False
 
 ########################################################################
 '''
-rp_2d.py
+cg_2d.py
 Code modified from rp_2d.py
 Author: Massimo Pascale
-Last Updated: 11/12/2019
+Last Updated: 3/1/2020
 
 Code uses poisson prior and exponential intensity function to determine
 point source locations in psf+noise and recover hyperparameters.
@@ -47,7 +48,7 @@ pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
 fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
 sig_psf = 0.1 # psf width
-sig_noise = 0.02 # noise level
+sig_noise = 0.1 # noise level
 
 #these are values for the power law function for sampling intensities
 w_interval = (1,2);
@@ -72,6 +73,24 @@ def gaussian(x, loc=None, scale=None):
     y = (x - loc)/scale
     return np.exp(-0.5*y**2)/np.sqrt(2.*np.pi)/scale
 
+
+def symmetrize(a):
+    """
+    Return a symmetrized version of NumPy array a.
+
+    Values 0 are replaced by the array value at the symmetric
+    position (with respect to the diagonal), i.e. if a_ij = 0,
+    then the returned array a' is such that a'_ij = a_ji.
+
+    Diagonal values are left untouched.
+
+    a -- square NumPy array, such that a_ij = 0 or a_ji = 0, 
+    for i != j.
+    taken from a stack exchange post:
+    https://stackoverflow.com/questions/2572916/numpy-smart-symmetric-matrix
+    """
+    return a + a.T - np.diag(a.diagonal());
+    
     
 def Psi(ws): 
     ''' "forward operator" i.e. forward model 
@@ -86,6 +105,8 @@ def prior_i(w,fdensity,alpha,sig):
     '''
     log of Poisson prior for an indivudial pixel
     '''
+    #if w <1e-5 or  10 < w:
+    #    return np.inf;
     pri=0.;
     if 0. < w <= 4:
         #norm = (max(interval_grid)**(alpha+1) - min(interval_grid)**(alpha+1))/(alpha+1); #normalization of mass function
@@ -115,10 +136,11 @@ def lnpost(ws,fdensity,alpha,sig):
     #converting flattened ws to matrix
     ws = ws.reshape((n_grid,n_grid));
     post = lnlike(ws) + lnprior(ws,fdensity,alpha,sig);
-    return post.flatten();
+    return post;
 
 def grad_lnpost(ws,fdensity,alpha,sig):
     #calculate gradient of the ln posterior
+    print('grad');
     mo = np.exp(-4.);
     ws = ws.reshape((n_grid,n_grid));
     #calc l1
@@ -131,25 +153,77 @@ def grad_lnpost(ws,fdensity,alpha,sig):
     l2 = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3 + fdensity*alpha*ws**(alpha-1) /w_norm;
     l2 = l2/np.absolute(xsi);
     l_tot = l1-l2;
+    return l_tot.flatten();
     #aval = afunc(ws);
     #print('new it')
     #print(np.absolute(aval-l_tot));
-    return l_tot.flatten();
     
+def hess_lnpost(ws,fdensity,alpha,sig):
+    print('hess')
+    #print(ws);
+    mo = np.exp(-4.);
+    #hval = hfunc(ws);
+    ws = ws.reshape((n_grid,n_grid));
+    #calc l1
+    lsis = np.array([-1*np.sum(psi(index)**2)/sig_noise**2 for (index,w) in np.ndenumerate(ws)]);
+    lsis = lsis.reshape((n_grid,n_grid));
+    l1 = lsis#*np.sum((Psi(ws)-data)/2/sig_noise**2);
+    xsi = (1.-fdensity ) * gaussian(np.log(ws),loc=np.log(mo), scale=sig)/ws + fdensity*(ws**alpha /w_norm)
+    dxsi = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3 + fdensity*alpha*ws**(alpha-1) /w_norm;
+    dxsi_st = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3;
+    ddxsi_st = -1*dxsi_st/ws - dxsi_st*np.log(ws/mo)/ws /sig**2 -(1.-fdensity)*(1/np.sqrt(2*np.pi)/sig)*np.exp(-np.log(ws/mo)**2 /2/sig**2)*(1/sig**2 - np.log(ws/mo)/sig**2 -1)/ ws**3;
+    ddxsi = ddxsi_st + fdensity*alpha*(alpha-1)*ws**(alpha-2) /w_norm   ;
+    l2 = -1*(dxsi/xsi)**2 + ddxsi/np.absolute(xsi);
+    l_tot = l1+l2;
+    #those are the diagonal terms, now need to build off diagonal
+    hess_m = np.zeros((n_grid**2,n_grid**2));
+    np.fill_diagonal(hess_m,l_tot);
+    '''
+    for i in range(0,n_grid**2):
+        for j in range(i+1,n_grid**2):
+            ind1 = (int(i/n_grid),i%n_grid);
+            ind2 = (int(j/n_grid),j%n_grid);
+            hess_m[i,j] = -1*np.sum(psi(ind1)*psi(ind2))/sig_noise**2;
+
+    hess_m = symmetrize(hess_m);
+    '''
+    print('hess fin');
+    #print(l_tot);
+    #print('new it');
+    #print(np.average(hval[0][:][:]-hess_m));
+    return -1*hess_m;
 def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     #keeping in mind that minimize requires flattened arrays
     #afunc = Agrad.grad(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
     grad_fun = lambda tg: grad_lnpost(tg,f_ini,alpha_ini,sig_curr);
+    #hfunc = Agrad.hessian(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
+    hess_fun = lambda th: hess_lnpost(th,f_ini,alpha_ini,sig_curr);
     #grad_fun = Agrad.grad(lambda tg: -1*lnpost(tg,f_ini,alpha_ini,sig_curr));
+    
     res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=grad_fun, 
                                   method='L-BFGS-B', 
                                   bounds=[(1e-5, 10)]*len(t_ini))
                                   
+    '''                                   
+    res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
+                                  t_ini, # theta initial
+                                  jac=grad_fun,
+                                  hess = hess_fun,
+                                  method='trust-ncg');         
+    '''                              
     tt_prime = res['x'];
+    print('Number of Iterations:')
     print(res['nit'])
+    print('Final Log-Likelihood:')
     w_final = tt_prime.reshape((n_grid,n_grid));
+    print(-1*lnpost(w_final,f_ini,alpha_ini,sig_curr));
+    plt.imshow(w_final);
+    plt.show();
+    plt.imshow(w_true_grid);
+    plt.show();
+    '''
     #print(w_final);
     #pick out the peaks using photutils
     thresh = detect_threshold(w_final,3);
@@ -157,8 +231,9 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     positions = np.transpose((tbl['x_peak'], tbl['y_peak']))
     w_peaks = np.zeros((n_grid,n_grid));
     w_peaks[positions] = w_final[positions];  
-    return w_peaks;
-    
+    '''
+    return w_final;
+'''   
 def optimize_fa(t_ini, f_ini,alpha_ini, sig_curr):
     #keeping in mind that minimize requires flattened arrays
     res = scipy.optimize.minimize(Agrad.value_and_grad(lambda fa: -1.*lnpost(t_ini,fa[0],fa[1],sig_curr)),
@@ -169,6 +244,7 @@ def optimize_fa(t_ini, f_ini,alpha_ini, sig_curr):
                                   
     ff_prime,aa_prime = res['x'];
     return (ff_prime,aa_prime)
+'''
 ########################################################################
 #create mock data to run on
 ########################################################################
@@ -193,7 +269,7 @@ data = Psi(w_true_grid) + sig_noise * np.random.randn(n_grid,n_grid);
 
 
 #now we begin the optimization
-tt0 = np.zeros(n_grid**2) +1; #begin with high uniform M
+tt0 = np.zeros(n_grid**2) +3; #begin with high uniform M
 
 #begin with the simple method of just minimizing
 f_curr = fdensity_true;
@@ -212,63 +288,3 @@ ax[1].set_title('Observed Data')
 ax[2].imshow(tt_prime);
 ax[2].set_title('Sparse Bayes')
 plt.show();
-
-'''
-f_curr = 0.3;
-alpha_curr = 0.2;
-sig_delta = 0.75;
-step = 0;
-#now we begin optimizing step by step, beginning with M, then f, then alpha
-while(True):
-	#start with m
-	res = scipy.optimize.minimize(
-			Agrad.value_and_grad(lambda tt: -1.*lnpost(tt,f_curr,alpha_curr,sig_delta,w_grid)),  
-			tt0, # theta initial 
-			jac=True, 
-			method='L-BFGS-B', 
-			bounds=[(1e-5, 5)]*len(tt0))
-	tt_prime = res['x']
-	print('midstep');
-	#step f by clipping the data
-	m_inds = scipy.signal.find_peaks(tt_prime);
-	f_prime = len(m_inds)/n_grid;
-	tt_prime = tt_prime[m_inds];
-	#step f and alpha simultaneously
-	res = scipy.optimize.minimize(
-			Agrad.value_and_grad(lambda x: -1.*lnpost(tt_prime,x,sig_delta,w_grid)),  
-			(alpha_curr), # fdensity and alpha initial 
-			jac=True, 
-			method='L-BFGS-B', 
-			bounds=[(-10, 10)])
-	f_prime,alpha_prime = res['x']
-	#calculate difference for error threshold
-	diff_f = abs(f_prime-f_curr);
-	diff_alpha = abs(alpha_prime - alpha_curr);
-	diff_t = abs(tt_prime - tt0);
-	diff_w = np.sqrt(diff_t.dot(diff_t));
-	if diff_w+diff_f+diff_alpha < 1e-4:
-		break;
-	#if not passed, then update values and step
-	tt0 = tt_prime;
-	alpha_curr = alpha_prime;
-	f_curr = f_prime;
-	step+=1;
-	print(step);
-
-print(alpha_prime);
-print(f_prime);
-'''
-'''
-# plot data 
-fig = plt.figure(figsize=(10,5))
-sub = fig.add_subplot(111)
-sub.scatter(xpix, data, marker='x', s=10) 
-for x, w in zip(x_true, w_true): 
-    sub.vlines(x, 0, w, color='k')
-sub.plot(theta_grid, tt_prime, c='C1', ls='--')
-sub.set_xlabel(r'$x_{\rm pix}$', fontsize=25) 
-sub.set_xlim(0., 1.) 
-sub.set_ylabel('intensity', fontsize=25) 
-sub.set_ylim(0., 2.5) 
-plt.show();
-'''

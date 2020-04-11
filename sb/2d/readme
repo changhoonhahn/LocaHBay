@@ -1,0 +1,11 @@
+Currently cg_2d.py minmizes wrt m(x) using analytical grad and hess.
+
+owl_2d.py is an in-progress attempt to use l1-norm + L-BFGS (OWL-QN)
+
+test_newton_comp.py is the my attempt to minmize wrt M(k), the fourier coeffs of m(x)
+
+creat_testsuite.py just creates some mock data to play around with.
+
+testgrad.py was code I was using to test my gradients
+
+
