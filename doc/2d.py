@@ -28,7 +28,7 @@ mpl.rcParams['ytick.major.size'] = 5
 mpl.rcParams['ytick.major.width'] = 1.5
 mpl.rcParams['legend.frameon'] = False
 
-Ngrid = 20
+Ngrid = 10
 xpix = np.linspace(0., 1., Ngrid) # default pixel gridding 
 ypix = np.linspace(0., 1., Ngrid) 
 _xxpix, _yypix = np.meshgrid(xpix, ypix) 
@@ -71,7 +71,7 @@ def obs2d(N_source=5, sig_noise=0.2, seed=1):
     '''
     np.random.seed(seed)
     thetas = np.array([np.random.uniform(0, 1, N_source), np.random.uniform(0, 1, N_source)]).T # x_true, y_true positions 
-    weights = np.repeat(10., N_source) #np.random.rand(N_source)*2 # weights --- in SMLM intensities 
+    weights = np.random.rand(N_source)*2 # weights --- in SMLM intensities 
     return thetas, weights, Psi(weights, thetas) + sig_noise * np.random.randn(len(xypix)) 
 
 
