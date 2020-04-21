@@ -2,6 +2,7 @@
 import math as math
 import autograd as Agrad
 import autograd.numpy as np 
+import autograd.numpy.fft as fft
 #import numpy as np
 import scipy.optimize
 import scipy.stats as st
@@ -49,6 +50,10 @@ fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
 sig_psf = 0.1 # psf width
 sig_noise = 0.1 # noise level
+
+mid = int(n_grid/2);
+x,y = np.meshgrid(pix_1d,pix_1d);
+psf = np.exp(-((y-pix_1d[mid])**2 + (x - pix_1d[mid])**2)/2/sig_psf**2); #keep in mind difference between x and y position and indices! Here, you are given indices, but meshgrid is in x-y coords
 
 #these are values for the power law function for sampling intensities
 w_interval = (1,2);
@@ -130,7 +135,7 @@ def lnprior(ws,fdensity,alpha,sig):
 def lnlike(ws): 
     ''' log likelihood 
     '''
-    return -0.5 * np.sum((Psi(ws) - data)**2/sig_noise**2)
+    return -0.5 * np.sum((np.real(fft.ifft2(fft.fft2(ws)*fft.fft2(psf))) - data)**2/sig_noise**2)
  
 def lnpost(ws,fdensity,alpha,sig): 
     #converting flattened ws to matrix
@@ -194,7 +199,7 @@ def hess_lnpost(ws,fdensity,alpha,sig):
     return -1*hess_m;
 def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     #keeping in mind that minimize requires flattened arrays
-    #afunc = Agrad.grad(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
+    afunc = Agrad.grad(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
     grad_fun = lambda tg: grad_lnpost(tg,f_ini,alpha_ini,sig_curr);
     #hfunc = Agrad.hessian(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
     hess_fun = lambda th: hess_lnpost(th,f_ini,alpha_ini,sig_curr);
@@ -202,7 +207,7 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     
     res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
-                                  jac=grad_fun, 
+                                  jac=afunc, 
                                   method='L-BFGS-B', 
                                   bounds=[(1e-5, 10)]*len(t_ini))
                                   
@@ -261,7 +266,7 @@ y_true = np.abs(np.random.rand(Ndata));
 w_true_grid = np.zeros((n_grid,n_grid))
 for x,y, w in zip(x_true,y_true, w_true): 
     w_true_grid[np.argmin(np.abs(theta_grid - x)),np.argmin(np.abs(theta_grid - y))] = w
-data = Psi(w_true_grid) + sig_noise * np.random.randn(n_grid,n_grid);
+data =np.real(fft.ifft2(fft.fft2(w_true_grid)*fft.fft2(psf)))+ sig_noise * np.random.randn(n_grid,n_grid);
 
 ########################################################################
 #now begin the actual execution
