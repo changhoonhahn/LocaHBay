@@ -45,7 +45,7 @@ point source locations in psf+noise and recover hyperparameters.
 
 #create global definitions - this will become a main function later on
 np.random.seed(42)
-Ndata = 6;
+Ndata = 3;
 n_grid =10;
 pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
 fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
@@ -82,8 +82,8 @@ def gaussian(x, loc=None, scale=None):
     return np.exp(-0.5*y**2)/np.sqrt(2.*np.pi)/scale
     
 def real_to_complex(z):      # real vector of length 2n -> complex of length n
-    print('len of z:');
-    print(len(z));
+    #print('len of z:');
+    #print(len(z));
     return z[:len(z)//2] + 1j * z[len(z)//2:]
 
 def complex_to_real(z):      # complex vector of length n -> real of length 2n
@@ -196,9 +196,9 @@ def lnpost_k(ws,fdensity,alpha,sig):
     
 def lnpost_k_og(ws,fdensity,alpha,sig): 
     #converting flattened ws to matrix
-    #ws = real_to_complex(ws);
+    #print(np.shape(ws))
     ws = ws.reshape((n_grid,n_grid));
-    ws = np.real(fft.ifft2(ws));
+    #ws = np.real(fft.ifft2(ws));
     post = lnlike_k(ws) #+ lnprior_k(ws,fdensity,alpha,sig);
     #print('post is');
     #print(post);
@@ -206,7 +206,7 @@ def lnpost_k_og(ws,fdensity,alpha,sig):
 
 #function for determining the hessian w/ respect to fourier coeff
 def hess_k(ws,fdensity,alpha,sig,psf_k):
-    print('hess_k begin');
+    #print('hess_k begin');
     #mo = np.exp(-4.);
     #ws = real_to_complex(ws);
     #ws = ws.reshape((n_grid,n_grid));
@@ -216,11 +216,11 @@ def hess_k(ws,fdensity,alpha,sig,psf_k):
     hess_l1 = np.zeros((2*n_grid**2,2*n_grid**2),dtype=complex);
     np.fill_diagonal(hess_l1,complex_to_real(l1));
     l_tot = hess_l1;
-    print('hess is:');
+    #print('hess is:');
     print(l_tot);
     return l_tot;
 def grad_k(ws,fdensity,alpha,sig,psf_k):
-    print('grad_k begin');
+    #print('grad_k begin');
     mo = np.exp(-4.);
     ws = real_to_complex(ws);
     ws = ws.reshape((n_grid,n_grid));
@@ -240,6 +240,8 @@ def grad_k(ws,fdensity,alpha,sig,psf_k):
 
 def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
     #keeping in mind that minimize requires flattened arrays
+    print('Initial Likelihood');
+    print(lnpost_k(t_ini,f_ini,alpha_ini,sig_curr))
     t_ini_comp = real_to_complex(t_ini)
     hfunc = Agrad.hessian(lambda tt: -1*lnpost_k(tt, f_ini,alpha_ini, sig_curr));
     afunc = Agrad.grad(lambda tt: -1*lnpost_k(tt,f_curr,a_curr,sig_delta))
@@ -261,27 +263,34 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
                                   method='Newton-CG') 
                                   
     '''
-                                  
+    '''                              
     res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=grad_fun,
-                                  method='BFGS')                                   
-                              
+                                  method='CG')   
+    '''                              
+    
+    res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
+                              t_ini, # theta initial
+                              method='Nelder-Mead')                                  
+                          
     
     '''
-    res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k_og(tt,f_ini,alpha_ini,sig_curr),
+    res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
-                                  jac=afunc_og,
-                                  method='BFGS')            
+                                  jac=aog,
+                                  method='CG')            
                               
-     
-    '''
+    '''  
     
-    cres = real_to_complex(res.x)
+    
+    cres = real_to_complex(res['x'])
     tt_prime = np.real(fft.ifft(cres));
     cres2 = real_to_complex(res2.x)
     tt_prime2 = np.real(fft.ifft(cres2));
-    #print(tt_prime);
+    print('Final Log Likelihood')
+    print(lnpost_k(res.x,f_ini,alpha_ini,sig_curr))
+    print(lnpost_k(res2.x,f_ini,alpha_ini,sig_curr))
     '''                              
     tt_prime = res['x'];
     print('Number of Iterations:')
@@ -343,13 +352,13 @@ psf_k = fft.fft2(psf);
 
 
 #now we begin the optimization
-tt0 = np.zeros((n_grid,n_grid)) +3; #begin with high uniform M
+tt0 = np.zeros((n_grid,n_grid)) +6; #begin with high uniform M
 #tt0 = np.absolute(np.random.randn(n_grid,n_grid)) + 2; #for test case with non uniform initial conditions
-
+#tt0 = w_true_grid;
 tt0 = fft.fft2(tt0).flatten();
 tto = tt0;
 tt0 = complex_to_real(tt0);
-tt0 = np.where(np.abs(tt0)<1e-5, tt0, 0)
+#tt0 = np.where(np.abs(tt0)>1e-5, tt0, 0)
 #print(tt0);
 #begin with the simple method of just minimizing
 f_curr = fdensity_true;

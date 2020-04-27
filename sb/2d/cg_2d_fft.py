@@ -43,13 +43,13 @@ point source locations in psf+noise and recover hyperparameters.
 
 #create global definitions - this will become a main function later on
 np.random.seed(42)
-Ndata = 5;
+Ndata = 1;
 n_grid = 15;
 pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
 fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
-sig_psf = 0.1 # psf width
-sig_noise = 0.1 # noise level
+sig_psf = 0.01 # psf width
+sig_noise = 0.01 # noise level
 
 mid = int(n_grid/2);
 x,y = np.meshgrid(pix_1d,pix_1d);
@@ -204,12 +204,13 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
     #hfunc = Agrad.hessian(lambda tt: -1*lnpost(tt, f_ini,alpha_ini, sig_curr));
     hess_fun = lambda th: hess_lnpost(th,f_ini,alpha_ini,sig_curr);
     #grad_fun = Agrad.grad(lambda tg: -1*lnpost(tg,f_ini,alpha_ini,sig_curr));
-    
+    '''
     res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=afunc, 
                                   method='L-BFGS-B', 
                                   bounds=[(1e-5, 10)]*len(t_ini))
+    '''                              
                                   
     '''                                   
     res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
@@ -217,7 +218,10 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr):
                                   jac=grad_fun,
                                   hess = hess_fun,
                                   method='trust-ncg');         
-    '''                              
+    '''
+    res = scipy.optimize.minimize(lambda tt: -1*lnpost(tt,f_ini,alpha_ini,sig_curr),
+                                  t_ini, # theta initial
+                                  method='Nelder-Mead')                              
     tt_prime = res['x'];
     print('Number of Iterations:')
     print(res['nit'])
