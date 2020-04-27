@@ -159,7 +159,7 @@ def lnlike_k(ws):
     #cv = cv[diff:n_grid+diff,diff:n_grid+diff];
     #like = -0.5 * np.sum((cv - data)**2/sig_noise**2);
     #like = -0.5 * np.sum((np.real(fft.fft2(fft.fft2(ws)))- data)**2/sig_noise**2);
-    like = -0.5 * np.sum((np.real(fft.ifft2(ws*psf_k))- data)**2)/sig_noise**2;
+    like = 0.5 * np.sum((np.real(fft.ifft2(ws*psf_k))- data)**2)/sig_noise**2;
     #like = np.real(like);
     #print('like is:');
     #print(like);
@@ -243,14 +243,14 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
     print('Initial Likelihood');
     print(lnpost_k(t_ini,f_ini,alpha_ini,sig_curr))
     t_ini_comp = real_to_complex(t_ini)
-    hfunc = Agrad.hessian(lambda tt: -1*lnpost_k(tt, f_ini,alpha_ini, sig_curr));
-    afunc = Agrad.grad(lambda tt: -1*lnpost_k(tt,f_curr,a_curr,sig_delta))
+    hfunc = Agrad.hessian(lambda tt: lnpost_k(tt, f_ini,alpha_ini, sig_curr));
+    afunc = Agrad.grad(lambda tt: lnpost_k(tt,f_curr,a_curr,sig_delta))
     grad_fun = lambda tg: -1*grad_k(tg,f_ini,alpha_ini,sig_curr,psf_k);
     hess_fun = lambda th: -1*hess_k(th,f_ini,alpha_ini,sig_curr,psf_k);
-    afunc_og = Agrad.holomorphic_grad(lambda tt: -1*lnpost_k_og(tt,f_curr,a_curr,sig_delta));
+    afunc_og = Agrad.holomorphic_grad(lambda tt: np.conj(lnpost_k_og(tt,f_curr,a_curr,sig_delta)));
     aog = lambda ts: complex_to_real(afunc_og(real_to_complex(ts)));
     #try optimization with some different algorithms
-    res = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
+    res = scipy.optimize.minimize(lambda tt: lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=grad_fun,
                                   hess = hess_fun,
@@ -269,19 +269,19 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
                                   jac=grad_fun,
                                   method='CG')   
     '''                              
-    
+    '''
     res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                               t_ini, # theta initial
                               method='Nelder-Mead')                                  
                           
-    
     '''
-    res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
+    
+    res2 = scipy.optimize.minimize(lambda tt: lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=aog,
                                   method='CG')            
                               
-    '''  
+      
     
     
     cres = real_to_complex(res['x'])
@@ -299,6 +299,10 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
     '''
     w_final = tt_prime.reshape((n_grid,n_grid));
     w_final2 = tt_prime2.reshape((n_grid,n_grid));
+    tt_sum = np.sum(w_final,axis=0);
+    print(tt_sum);
+    print(np.sum(w_true_grid,axis=1));
+    #plt.imshow(tt_sum);
     #print(-1*lnpost(w_final,f_ini,alpha_ini,sig_curr));
     fig, ax = plt.subplots(1,3)
     ax[0].imshow(data);
@@ -328,7 +332,7 @@ w_true_grid = np.zeros((n_grid,n_grid))
 for x,y, w in zip(x_true,y_true, w_true): 
     w_true_grid[np.argmin(np.abs(theta_grid - x)),np.argmin(np.abs(theta_grid - y))] = w
 
-data = np.real(fft.ifft2(fft.fft2(w_true_grid)*fft.fft2(psf))) + np.absolute(sig_noise* np.random.randn(n_grid,n_grid));
+data = np.real(fft.ifft2(fft.fft2(w_true_grid)*fft.fft2(psf))) #+ np.absolute(sig_noise* np.random.randn(n_grid,n_grid));
 data3 = signal.convolve(w_true_grid,psf);
 diff = int((len(data3[:,0]) - n_grid)/2);
 data3 = data3[diff:n_grid+diff,diff:n_grid+diff];
@@ -364,9 +368,10 @@ tt0 = complex_to_real(tt0);
 f_curr = fdensity_true;
 a_curr = 2;
 sig_delta = 0.75;
+#print(lnpost_k(tt0,f_curr,a_curr,sig_delta));
+
 optimize_m(tt0,f_curr,a_curr,sig_delta,psf_k);
 
-#print(lnpost_k(tt0,f_curr,a_curr,sig_delta));
 #print(lnpost_k_og(real_to_complex(tt0),f_curr,a_curr,sig_delta))
 '''
 #below are a bunch of tests I did for checking my analytics vs autograd
