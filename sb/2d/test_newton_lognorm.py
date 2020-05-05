@@ -45,8 +45,8 @@ point source locations in psf+noise and recover hyperparameters.
 
 #create global definitions - this will become a main function later on
 np.random.seed(42)
-Ndata = 3;
-n_grid =10;
+Ndata = 1;
+n_grid =15;
 pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
 fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
@@ -128,7 +128,7 @@ def prior_i(w,fdensity,alpha,sig):
         pri += fdensity#*p1 #+ p2*fdensity**2
     if w > 0:
         #pri += (1.-fdensity - fdensity**2 ) *gaussian(np.log(w),loc=-4., scale=sig)/w
-        pri += (1.-fdensity) *gaussian(np.log(w),loc=-4., scale=sig)/w
+        pri += (1.-fdensity-fdensity**2) *gaussian(np.log(w),loc=1.0001, scale=sig)/w
     return pri
     
 def lnprior(ws,fdensity,alpha,sig): 
@@ -147,6 +147,8 @@ def lnprior_k(ws,fdensity,alpha,sig):
     #ws = ws.reshape((n_grid,n_grid));
     #print('priori');
     #print(ws);
+    #w_flat = ws.flatten();
+    #fdensity = len(w_flat[.05 < w_flat])/n_grid**2
     pri =  np.sum([np.log(prior_i(w,fdensity,alpha,sig)) for w in ws.flatten()]);
     return pri;
 
@@ -189,7 +191,7 @@ def lnpost_k(ws,fdensity,alpha,sig):
     #converting flattened ws to matrix
     ws = real_to_complex(ws);
     ws = ws.reshape((n_grid,n_grid));
-    post = lnlike_k(ws) #+ lnprior_k(ws,fdensity,alpha,sig);
+    post = lnlike_k(ws) - lnprior_k(np.real(fft.ifft2(ws)),fdensity,alpha,sig);
     #print('post is');
     #print(post);
     return post;
@@ -198,10 +200,12 @@ def lnpost_k_og(ws,fdensity,alpha,sig):
     #converting flattened ws to matrix
     #print(np.shape(ws))
     ws = ws.reshape((n_grid,n_grid));
-    #ws = np.real(fft.ifft2(ws));
-    post = lnlike_k(ws) #+ lnprior_k(ws,fdensity,alpha,sig);
+    ws_real = np.real(fft.ifft2(ws));
+    post = lnlike_k(ws) - lnprior_k(ws_real,fdensity,alpha,sig);
     #print('post is');
     #print(post);
+    #barrier function
+    
     return post;  
 
 #function for determining the hessian w/ respect to fourier coeff
@@ -212,7 +216,7 @@ def hess_k(ws,fdensity,alpha,sig,psf_k):
     #ws = ws.reshape((n_grid,n_grid));
     #ws = np.real(fft.ifft2(ws));
     #calc l1 we only get diagonals here
-    l1 = -1*(psf_k**2 /sig_noise**2 / n_grid**2).flatten();
+    l1 = (psf_k**2 /sig_noise**2 / n_grid**2).flatten();
     hess_l1 = np.zeros((2*n_grid**2,2*n_grid**2),dtype=complex);
     np.fill_diagonal(hess_l1,complex_to_real(l1));
     l_tot = hess_l1;
@@ -227,12 +231,17 @@ def grad_k(ws,fdensity,alpha,sig,psf_k):
     #wk = ws;
     #ws = np.real(fft.ifft2(ws));
     
-    l1 = -1*fft.ifft2((np.real(fft.ifft2(ws*psf_k))- data)/sig_noise**2)*psf_k;
+    l1 = fft.ifft2((np.real(fft.ifft2(ws*psf_k))- data)/sig_noise**2)*psf_k;
     #print(l1-l1_other)
     l1 = l1.flatten();
-    l_tot = l1;
+    ws = fft.ifft2(ws);
+    xsi = (1.-fdensity ) * gaussian(np.log(ws),loc=np.log(mo), scale=sig)/ws + fdensity*(ws**alpha /w_norm)
+    l2 = -1*gaussian(np.log(ws),loc=np.log(mo), scale=sig)*(1.-fdensity)/ws**2 - (1.-fdensity)*np.log(ws/mo)*np.exp(-np.log(ws/mo)**2 /2/sig**2)/np.sqrt(2*np.pi)/ws**2 /sig**3 + fdensity*alpha*ws**(alpha-1) /w_norm;
+    l2 = l2/np.absolute(xsi);
+    l2 = fft.ifft2(l2).flatten();
+    l_tot = l1 - l2;
     #return l1,l2;
-    l_tot =  complex_to_real(l_tot);
+    l_tot =  complex_to_real(np.conj(l_tot));
     #print('grad is');
     #print(l_tot);
     return l_tot;
@@ -244,17 +253,17 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
     print(lnpost_k(t_ini,f_ini,alpha_ini,sig_curr))
     t_ini_comp = real_to_complex(t_ini)
     hfunc = Agrad.hessian(lambda tt: lnpost_k(tt, f_ini,alpha_ini, sig_curr));
-    afunc = Agrad.grad(lambda tt: lnpost_k(tt,f_curr,a_curr,sig_delta));
-    grad_fun = lambda tg: -1*grad_k(tg,f_ini,alpha_ini,sig_curr,psf_k);
-    hess_fun = lambda th: -1*hess_k(th,f_ini,alpha_ini,sig_curr,psf_k);
-    afunc_og = Agrad.holomorphic_grad(lambda tt: np.conj(lnpost_k_og(tt,f_curr,a_curr,sig_delta)));
+    afunc = Agrad.grad(lambda tt: lnpost_k(tt,f_curr,a_curr,sig_delta))
+    grad_fun = lambda tg: grad_k(tg,f_ini,alpha_ini,sig_curr,psf_k);
+    hess_fun = lambda th: hess_k(th,f_ini,alpha_ini,sig_curr,psf_k);
+    afunc_og = Agrad.holomorphic_grad(lambda tt: (lnpost_k_og(tt,f_curr,a_curr,sig_delta)));
     aog = lambda ts: complex_to_real(afunc_og(real_to_complex(ts)));
     #try optimization with some different algorithms
     res = scipy.optimize.minimize(lambda tt: lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
                                   jac=grad_fun,
                                   hess = hess_fun,
-                                  method='trust-ncg') 
+                                  method='trust-exact') 
     '''                            
     res2 = scipy.optimize.minimize(lambda tt: -1*lnpost_k(tt,f_ini,alpha_ini,sig_curr),
                                   t_ini, # theta initial
@@ -299,7 +308,7 @@ def optimize_m(t_ini, f_ini,alpha_ini, sig_curr,psf_k):
     '''
     w_final = tt_prime.reshape((n_grid,n_grid));
     w_final2 = tt_prime2.reshape((n_grid,n_grid));
-    tt_sum = np.sum(w_final,axis=0);
+    tt_sum = np.sum(w_final2,axis=0);
     print(tt_sum);
     print(np.sum(w_true_grid,axis=1));
     #plt.imshow(tt_sum);
@@ -332,7 +341,7 @@ w_true_grid = np.zeros((n_grid,n_grid))
 for x,y, w in zip(x_true,y_true, w_true): 
     w_true_grid[np.argmin(np.abs(theta_grid - x)),np.argmin(np.abs(theta_grid - y))] = w
 
-data = np.real(fft.ifft2(fft.fft2(w_true_grid)*fft.fft2(psf))) #+ np.absolute(sig_noise* np.random.randn(n_grid,n_grid));
+data = np.real(fft.ifft2(fft.fft2(w_true_grid)*fft.fft2(psf))) + np.absolute(sig_noise* np.random.randn(n_grid,n_grid));
 data3 = signal.convolve(w_true_grid,psf);
 diff = int((len(data3[:,0]) - n_grid)/2);
 data3 = data3[diff:n_grid+diff,diff:n_grid+diff];
@@ -356,9 +365,10 @@ psf_k = fft.fft2(psf);
 
 
 #now we begin the optimization
-tt0 = np.zeros((n_grid,n_grid)) +6; #begin with high uniform M
+tt0 = np.zeros((n_grid,n_grid)) +4.; #begin with high uniform M
 #tt0 = np.absolute(np.random.randn(n_grid,n_grid)) + 2; #for test case with non uniform initial conditions
-#tt0 = w_true_grid;
+#tt0 = w_true_grid+ np.absolute(sig_noise* np.random.randn(n_grid,n_grid));
+#tt0 = data;
 tt0 = fft.fft2(tt0).flatten();
 tto = tt0;
 tt0 = complex_to_real(tt0);
