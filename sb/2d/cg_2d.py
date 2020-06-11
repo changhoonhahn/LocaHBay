@@ -43,7 +43,7 @@ point source locations in psf+noise and recover hyperparameters.
 #create global definitions - this will become a main function later on
 np.random.seed(42)
 Ndata = 5;
-n_grid = 15;
+n_grid = 64;
 pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
 fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
