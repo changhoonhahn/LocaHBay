@@ -34,7 +34,7 @@ mpl.rcParams['legend.frameon'] = False
 mpl.rcParams.update({'font.size': 22})
 
 
-class SparseBayes:
+class SparseBayes_gaussian:
     
     #constructor
     def __init__(self,data,psf,psf_k):
@@ -45,7 +45,6 @@ class SparseBayes:
         self.wlim = (0.01,10); #min and max signal (given by challenge, will determine ourselves in the future)
         self.sig_noise = self.getNoise(data)
         self.norm_mean, self.norm_sig = self.getNorm(data);
-        self.xi = self.getXi(data);
         self.res = self.run();
         
     #In order to minmize w.r.t. complex numbers we embed the complex nummbers into real space with twice the dimensions
@@ -70,7 +69,12 @@ class SparseBayes:
         #return (np.log(np.average(data[data<np.average(data)+3*np.std(data)])-self.sig_noise),np.average(data)*0.5); #really just assigning random values here, need better way to do this
         #return (np.log(0.1*self.sig_noise),np.average(data)*0.5);
         #print(np.average(data)*5.)
-        return (-1,np.average(data)*5.);
+        return (-1,0.5);
+        
+    def gaussian(self,x, loc=None, scale=None): 
+        
+        y = (x - loc)/scale
+        return np.exp(-0.5*y**2)/np.sqrt(2.*np.pi)/scale
     #expects ws, NOT the fourier coefficients ws_k
     def lognorm(self,ws):
         return np.exp(-0.5*(np.log(ws) - self.norm_mean)**2 /self.norm_sig**2)/np.sqrt(2*np.pi)/self.norm_sig/ws;
@@ -96,29 +100,29 @@ class SparseBayes:
         print(ws);
         w_norm = (self.wlim[1]**(alpha+1) - self.wlim[0]**(alpha+1))/(alpha+1); #normalization from integrating
         p1 = ws**alpha /w_norm;
-        prior = np.where(ws<=0.,0.,np.log(self.lognorm(ws)*(1-f) + f*p1))
+        prior = np.where(ws<=0.,0.,np.log(self.gaussian(ws,0,0.1)*(1-f) + f*p1))
         prior_loss = np.sum(prior);
         return prior_loss;
     
-    def loss_fn_real(self,wsp_k,xi,f,alpha):
+    def loss_fn_real(self,wsp_k,f,alpha):
         wsp_k = wsp_k.reshape((self.n_grid,self.n_grid)); #reshape to 2d
         wsp = np.real(fft.ifft2(wsp_k));
-        ws = xi*np.log(np.exp(wsp/xi)+1) #reparametrize from m_prime back to m
+        ws = wsp #reparametrize from m_prime back to m
         ws_k = fft.fft2(ws);
         return self.loss_like(ws_k)-self.loss_prior(ws,f,alpha);
     
-    def loss_fn(self,wsp_k,xi,f,alpha):
+    def loss_fn(self,wsp_k,f,alpha):
         wsp_k = self.real_to_complex(wsp_k); #2*reals -> complex
         wsp_k = wsp_k.reshape((self.n_grid,self.n_grid)); #reshape to 2d
         wsp = np.real(fft.ifft2(wsp_k));
-        ws = xi*np.log(np.exp(wsp/xi)+1) #reparametrize from m_prime back to m
+        ws = wsp #reparametrize from m_prime back to m
         ws_k = fft.fft2(ws);
         return self.loss_like(ws_k) - self.loss_prior(ws,f,alpha);
         
     #numerical gradient (may run faster)    
-    def areal(self,th,xi,f,alpha):
+    def areal(self,th,f,alpha):
         th_comp = self.real_to_complex(th);
-        gfunc = Agrad.holomorphic_grad(lambda tt: self.loss_fn_real(tt,xi,f,alpha));
+        gfunc = Agrad.holomorphic_grad(lambda tt: self.loss_fn_real(tt,f,alpha));
         grad_comp = gfunc(th_comp);
         grad_real = self.complex_to_real(np.conj(grad_comp));
         return grad_real;
@@ -160,10 +164,10 @@ class SparseBayes:
         
         return self.grad_like(wsp,ws,ws_k,xi)-self.grad_prior(wsp,ws,ws_k,xi,f,alpha);    
     
-    def optimize_m(self,wsp_k,xi,f,alpha):
+    def optimize_m(self,wsp_k,f,alpha):
         print('optimizing')
-        gradfun = lambda tg: self.areal(tg,xi,f,alpha);
-        res = scipy.optimize.minimize(lambda tt: self.loss_fn(tt,xi,f,alpha),
+        gradfun = lambda tg: self.areal(tg,f,alpha);
+        res = scipy.optimize.minimize(lambda tt: self.loss_fn(tt,f,alpha),
             wsp_k, # theta initial
             jac=gradfun,                          
             method='Newton-CG');
@@ -172,7 +176,7 @@ class SparseBayes:
         w_final_k = self.real_to_complex(res['x']);
         w_final_k = w_final_k.reshape((self.n_grid,self.n_grid)); #reshape to 2d
         w_final = np.real(fft.ifft2(w_final_k));
-        w_final = xi*np.log(np.exp(w_final/xi)+1);
+        #w_final = xi*np.log(np.exp(w_final/xi)+1);
         return w_final;
         
         
@@ -184,11 +188,11 @@ class SparseBayes:
         #set up initial guesses
         #create initial parameters
         tt0 = np.zeros((self.n_grid,self.n_grid)) + self.wlim[1]; #begin with high uniform mass in each pixel
-        tt0 = self.xi*np.log(np.exp(tt0/self.xi)-1);
+        #tt0 = self.xi*np.log(np.exp(tt0/self.xi)-1);
         #print(tt0);
         tt0_k = fft.fft2(tt0); #take fft
         t_ini = self.complex_to_real(tt0_k.flatten()) #flatten to 1d for scipy and embed in 2R
         
         alpha_ini = 3.;
         f_ini = 0.9;
-        return self.optimize_m(t_ini,self.xi,f_ini,alpha_ini);
+        return self.optimize_m(t_ini,f_ini,alpha_ini);

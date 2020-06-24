@@ -6,32 +6,23 @@ import scipy.stats as st
 
 
 np.random.seed(42)
-sig_psf = np.linspace(0.01,0.5,10);
-sig_noise = np.linspace(0.01,0.5,10);
+#sig_psf = np.linspace(0.01,0.5,10);
+#sig_noise = np.linspace(0.01,0.5,10);
 
-Ndata = 5;
-n_grid = 15;
+n_grid = 65;
 pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
-fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
 #create coordinate grid
 theta_grid = np.linspace(0., 1., n_grid) # gridding of theta (same as pixels)
 
-#create true values - assign to grid
-x_true = np.abs(np.random.rand(Ndata)) # location of sources
-y_true = np.abs(np.random.rand(Ndata));
-
+sig_psf = 0.03;
 #these are values for the power law function for sampling intensities
 w_interval = (1,2);
 w_lin = np.linspace(1,2,100);
 alpha_true = 2;
-w_norm = (50**(alpha_true+1) - w_interval[0]**(alpha_true+1))/(alpha_true+1);
+w_norm = np.sum(np.power(w_lin,alpha_true));#(w_interval(2)**(alpha_true+1) - w_interval[0]**(alpha_true+1))/(alpha_true+1);
 w_func = np.power(w_lin,alpha_true)/w_norm;
-w_true = w_norm*np.random.choice(w_func,Ndata);
-w_true_grid = np.zeros((n_grid,n_grid))
 
-for x,y, w in zip(x_true,y_true, w_true): 
-    w_true_grid[np.argmin(np.abs(theta_grid - x)),np.argmin(np.abs(theta_grid - y))] = w;
 
 def psi(pos,sig_p): 
     ''' measurement model, which in our case is just a 1d gaussian of width 
@@ -78,7 +69,7 @@ def Psi(ws,sig_p):
 
 
 
-
+'''
 #true grid needs to be set up with noise
 data = np.zeros((n_grid,n_grid, len(sig_psf)*len(sig_noise)));
 for i in range(0,len(sig_psf)):
@@ -87,3 +78,34 @@ for i in range(0,len(sig_psf)):
         fname = './data_5_15/test' + str(i*len(sig_noise) + j)
         np.savetxt(fname+'.dat',data[:,:,i*len(sig_noise) + j]);
 np.savetxt('true.dat',w_true_grid);
+'''
+#path = './data/ld_hsnr/'
+#sig_noise = 0.05;
+#path = './data/ld_lsnr/'
+#sig_noise = 0.3;
+#nlim = (0,7);
+
+#path = './data/hd_hsnr/'
+#sig_noise = 0.05;
+path = './data/hd_lsnr/'
+sig_noise = 0.3;
+nlim = (8,15);
+for i in range(0,25):
+        w_true_grid = np.zeros((n_grid,n_grid))
+        Ndata = np.random.randint(nlim[0],nlim[1]);
+        fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
+        w_true =np.random.choice(w_lin,Ndata,p=w_func);
+        #create true values - assign to grid
+        x_true = np.random.randint(0,n_grid-1,Ndata);
+        y_true = np.random.randint(0,n_grid-1,Ndata);
+        w_true_grid[x_true,y_true] = w_true;
+        truth_arr = np.zeros((Ndata,3));
+        truth_arr[:,0] = x_true;
+        truth_arr[:,1] = y_true;
+        truth_arr[:,2] = w_true;
+        data = Psi(w_true_grid,sig_psf) + sig_noise * np.random.randn(n_grid,n_grid);
+        name = path + str(i)+'.dat';
+        np.savetxt(name,data);
+        truth_name = path+str(i)+'.truth';
+        np.savetxt(truth_name,truth_arr);
+            
