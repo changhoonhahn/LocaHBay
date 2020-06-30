@@ -42,19 +42,19 @@ point source locations in psf+noise and recover hyperparameters.
 
 #create global definitions - this will become a main function later on
 np.random.seed(42)
-Ndata = 5;
+Ndata = 12;
 n_grid = 64;
 pix_1d = np.linspace(0., 1., n_grid) # pixel gridding
 fdensity_true = float(Ndata)/float(n_grid**2); #number density of obj in 1d
 
-sig_psf = 0.1 # psf width
-sig_noise = 0.1 # noise level
+sig_psf = 0.03 # psf width
+sig_noise = 0.3 # noise level
 
 #these are values for the power law function for sampling intensities
 w_interval = (1,2);
 w_lin = np.linspace(1,2,100);
-alpha_true = 2;
-w_norm = (50**(alpha_true+1) - w_interval[0]**(alpha_true+1))/(alpha_true+1);
+alpha_true = -1.25;
+w_norm = np.sum(w_lin**alpha_true);
 w_func = np.power(w_lin,alpha_true)/w_norm;
 w_true = w_norm*np.random.choice(w_func,Ndata);
 

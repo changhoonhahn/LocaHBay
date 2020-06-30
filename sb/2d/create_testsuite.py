@@ -19,7 +19,7 @@ sig_psf = 0.03;
 #these are values for the power law function for sampling intensities
 w_interval = (1,2);
 w_lin = np.linspace(1,2,100);
-alpha_true = 2;
+alpha_true = -1.25;
 w_norm = np.sum(np.power(w_lin,alpha_true));#(w_interval(2)**(alpha_true+1) - w_interval[0]**(alpha_true+1))/(alpha_true+1);
 w_func = np.power(w_lin,alpha_true)/w_norm;
 
@@ -79,17 +79,17 @@ for i in range(0,len(sig_psf)):
         np.savetxt(fname+'.dat',data[:,:,i*len(sig_noise) + j]);
 np.savetxt('true.dat',w_true_grid);
 '''
-#path = './data/ld_hsnr/'
-#sig_noise = 0.05;
-#path = './data/ld_lsnr/'
+path = './data_alpha/ld_hsnr/'
+sig_noise = 0.05;
+#path = './data_alpha/ld_lsnr/'
 #sig_noise = 0.3;
-#nlim = (0,7);
+nlim = (0,7);
 
-#path = './data/hd_hsnr/'
+#path = './data_alpha/hd_hsnr/'
 #sig_noise = 0.05;
-path = './data/hd_lsnr/'
-sig_noise = 0.3;
-nlim = (8,15);
+#path = './data_alpha/hd_lsnr/'
+#sig_noise = 0.3;
+#nlim = (8,15);
 for i in range(0,25):
         w_true_grid = np.zeros((n_grid,n_grid))
         Ndata = np.random.randint(nlim[0],nlim[1]);
