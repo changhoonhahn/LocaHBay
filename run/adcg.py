@@ -28,11 +28,13 @@ background_subtract=False
 
 if dataset == 'BTLS': 
     sig_psf = 0.017133076722848264
+elif dataset == 'mock_alpha': 
+    sig_psf = 0.03 
 else:
     raise NotImplementedError
 
 
-def read_image(fframe, background_subtract=False):
+def read_image(fframe, data_set='BTLS', background_subtract=False):
     ''' read given image
 
     :param fframe: 
@@ -42,8 +44,11 @@ def read_image(fframe, background_subtract=False):
     :param background_subtract:
         If True, sigmaclipped background subtraction (default: False) 
     '''
-    im = Image.open(fframe)
-    imarr = np.array(im)
+    if data_set == 'BTLS': 
+        im = Image.open(fframe)
+        imarr = np.array(im)
+    elif dataset == 'mock_alpha':  
+        imarr = np.loadtxt(fframe)
     
     noise_level = 0. 
     if background_subtract: 
@@ -52,7 +57,7 @@ def read_image(fframe, background_subtract=False):
     return imarr - noise_level
 
 
-image = read_image(fimage, background_subtract=background_subtract) # read image
+image = read_image(fimage, data_set=dataset, background_subtract=background_subtract) # read image
 
 # PSF 
 cov_psf = sig_psf**2 * np.identity(2)
